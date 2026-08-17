@@ -34,8 +34,17 @@ def get_embeddings():
 
 
 @st.cache_resource(show_spinner=False)
-def build_vector_store(video_id: str, _embeddings):
-    api = YouTubeTranscriptApi()
+def build_vector_store(video_id: str, _embeddings, _proxy_username=None, _proxy_password=None):
+    if _proxy_username and _proxy_password:
+        from youtube_transcript_api.proxies import WebshareProxyConfig
+        api = YouTubeTranscriptApi(
+            proxy_config=WebshareProxyConfig(
+                proxy_username=_proxy_username,
+                proxy_password=_proxy_password,
+            )
+        )
+    else:
+        api = YouTubeTranscriptApi()
     transcript_list = api.fetch(video_id)
     transcript = " ".join([entry.text for entry in transcript_list])
 
@@ -68,11 +77,20 @@ with st.sidebar:
     groq_key = st.text_input("Groq API Key", type="password", help="Get a free key at console.groq.com")
     model_name = st.selectbox(
         "Model",
-        ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"],
+        ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3.6-27b"],
         index=0,
+        help="llama-3.1-8b-instant and llama-3.3-70b-versatile were deprecated by Groq in June 2026.",
     )
     st.divider()
     st.caption("Free stack: HuggingFace embeddings (local) + FAISS (local) + Groq (free-tier LLM).")
+    st.divider()
+    st.subheader("🌐 Proxy (optional)")
+    st.caption(
+        "YouTube blocks cloud IPs from fetching transcripts. If you hit an "
+        "'IP blocked' error, add free Webshare proxy credentials from webshare.io."
+    )
+    proxy_username = st.text_input("Webshare Proxy Username", value="")
+    proxy_password = st.text_input("Webshare Proxy Password", type="password", value="")
 
 # ---------- Main UI ----------
 
@@ -98,7 +116,9 @@ if load_btn:
                 video_id = extract_video_id(video_input)
                 os.environ["GROQ_API_KEY"] = groq_key
                 embeddings = get_embeddings()
-                vector_store, num_chunks = build_vector_store(video_id, embeddings)
+                vector_store, num_chunks = build_vector_store(
+                    video_id, embeddings, proxy_username or None, proxy_password or None
+                )
                 st.session_state.retriever = vector_store.as_retriever(search_kwargs={"k": 4})
                 st.session_state.llm = ChatGroq(model=model_name, temperature=0.2)
                 st.session_state.video_ready = True
